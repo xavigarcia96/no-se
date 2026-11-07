@@ -1,0 +1,241 @@
+diff -ruN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-11-07 03:17:25.000000000 -0600
++++ b/CMakeLists.txt	2026-11-07 16:46:04.715908148 -0600
+@@ -348,7 +348,7 @@
+         # See https://gcc.gnu.org/onlinedocs/gcc/x86-Options.html
+         # Generic supports Pentium Pro instruction set and above
+         # TODO: if a value is unknown, pass that as march and mtune
+-        set(YUZU_BUILD_PRESET "custom" CACHE STRING "Build preset to use. One of: custom, generic, v3, zen2, zen4, native")
++        set(YUZU_BUILD_PRESET "custom" CACHE STRING "Build preset to use. One of: custom, generic, v3, zen2, zen4, alderlake, native")
+ 
+         if (${YUZU_BUILD_PRESET} STREQUAL "generic")
+             set(march x86-64)
+@@ -362,6 +362,10 @@
+         elseif (${YUZU_BUILD_PRESET} STREQUAL "zen4")
+             set(march znver4)
+             set(mtune znver4)
++        elseif (${YUZU_BUILD_PRESET} STREQUAL "alderlake")
++            # Intel 12th gen (AVX2/FMA/BMI2, no AVX-512): hybrid P/E-core laptops and desktops
++            set(march alderlake)
++            set(mtune alderlake)
+         endif()
+     elseif(ARCHITECTURE_arm64)
+         # See https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
+diff -ruN a/dist/lowspec/qt-config-rtx3050-4gb.ini b/dist/lowspec/qt-config-rtx3050-4gb.ini
+--- a/dist/lowspec/qt-config-rtx3050-4gb.ini	1969-12-31 18:00:00.000000000 -0600
++++ b/dist/lowspec/qt-config-rtx3050-4gb.ini	2026-11-07 16:48:53.953755388 -0600
+@@ -0,0 +1,76 @@
++; Lichii - perfil para laptop RTX 3050 (4 GB VRAM) / 8 GB RAM / Intel Core i5 de 12a gen
++;
++; Uso: cierra Lichii, haz copia de tu qt-config.ini y copia estos valores a las secciones
++; del mismo nombre en:   %APPDATA%\eden\config\qt-config.ini
++; (o en  user\config\qt-config.ini  junto a lichii.exe si usas modo portable).
++; Si no tienes qt-config.ini todavia, copia este archivo con ese nombre y abre Lichii.
++;
++; Formato: "clave=valor" y "clave\default=false" (false = "usar mi valor"). Solo se listan
++; los ajustes que cambian respecto a lo util en este equipo. Valores de enums = indice numerico.
++
++[Renderer]
++; Vulkan (1) sobre la RTX 3050; el dispositivo 0 ya es la NVIDIA (el emulador ordena discretas primero).
++backend=1
++backend\default=false
++vulkan_device=0
++vulkan_device\default=false
++
++; Resolucion nativa (1X). En modo portatil = 720p, en dock = 1080p internos.
++resolution_setup=3
++resolution_setup\default=false
++
++; Filtro de escalado barato: ScaleForce (5). Fsr3 (15, valor de primer arranque) cuesta GPU y VRAM.
++scaling_filter=5
++scaling_filter\default=false
++
++; Anti-aliasing: FXAA (1) cuesta muy poco. Pon 0 (ninguno) si necesitas mas fps.
++anti_aliasing=1
++anti_aliasing\default=false
++
++; VSync FifoRelaxed (3): si no llegas a 60 fps no cae a 30 de golpe (puede haber tearing leve).
++use_vsync=3
++use_vsync\default=false
++
++; Precision de GPU baja (0) y shaders asincronos: menos stutter y menos carga de GPU/CPU.
++gpu_accuracy=0
++gpu_accuracy\default=false
++use_asynchronous_shaders=true
++use_asynchronous_shaders\default=false
++async_presentation=true
++async_presentation\default=false
++
++; Reactive flushing OFF: en una RTX 3050 costaba fps (notas del proyecto, fila 128).
++use_reactive_flushing=false
++use_reactive_flushing\default=false
++
++; VRAM: texturas ASTC decodificadas en GPU y recomprimidas a BC3 (la RTX no soporta ASTC nativo:
++; sin recompresion ocupan 4x-16x mas VRAM). Modo conservador de VRAM para no pasar de ~3.5 GB.
++accelerate_astc=1
++accelerate_astc\default=false
++astc_recompression=2
++astc_recompression\default=false
++vram_usage_mode=0
++vram_usage_mode\default=false
++
++; Caches de shaders en disco: reducen tirones tras la primera vez.
++use_disk_shader_cache=true
++use_disk_shader_cache\default=false
++use_vulkan_driver_pipeline_cache=true
++use_vulkan_driver_pipeline_cache\default=false
++
++; Sin frame generation ni DLSS/FSR de juego: no caben en 4 GB / 8 GB sin perder rendimiento.
++frame_gen=false
++frame_gen\default=false
++
++[Core]
++use_multi_core=true
++use_multi_core\default=false
++use_speed_limit=true
++use_speed_limit\default=false
++speed_limit=100
++speed_limit\default=false
++
++[System]
++; Modo portatil (0) = 720p: lo recomendable para esta GPU. Docked (1) = 1080p, ~2.25x de pixeles.
++use_docked_mode=0
++use_docked_mode\default=false
+diff -ruN a/docs/LowSpec-RTX3050.md b/docs/LowSpec-RTX3050.md
+--- a/docs/LowSpec-RTX3050.md	1969-12-31 18:00:00.000000000 -0600
++++ b/docs/LowSpec-RTX3050.md	2026-11-07 16:49:43.137927061 -0600
+@@ -0,0 +1,100 @@
++<!--
++SPDX-License-Identifier: GPL-3.0-or-later
++-->
++
++# Lichii en laptop RTX 3050 (4 GB) / 8 GB RAM / Core i5 de 12a gen
++
++Guía de ajuste para este hardware. Los números de rendimiento no están medidos en esta máquina:
++úsala como punto de partida y compara con el log de tu propia sesión.
++
++## Qué esperar
++
++| Tipo de juego | Viabilidad en este equipo | Por qué |
++|---|---|---|
++| Switch 1 (layout de 4 GB) | Buena en la mayoría de títulos a 720p | La memoria del invitado son 4 GiB y la VRAM alcanza con ASTC→BC3 |
++| Switch 2 | Muy limitada, en la práctica no jugable con fluidez | El emulador usa el layout de 12 GiB (+ memoria del servidor gráfico: ~20 GiB de *commit* de respaldo) y los juegos llenan 6-7 GB de VRAM. Con 8 GB de RAM y 4 GB de VRAM habrá paginación constante |
++
++Referencia del propio proyecto (`NX2_NOTES.md`, fila 128): un Ryzen 5 2600 + RTX **3050 de 6 GB**
++daba 8 fps con los valores por defecto de Eden y ~20 fps irregulares con los ajustes de abajo en un
++título de Switch 2. Esta laptop tiene menos VRAM y menos RAM que ese equipo.
++
++## 1. Perfil de configuración
++
++Copia `dist/lowspec/qt-config-rtx3050-4gb.ini` (instrucciones dentro del archivo) a
++`%APPDATA%\eden\config\qt-config.ini`. Lo que cambia respecto a un arranque limpio:
++
++- **Escalado `ScaleForce`** en lugar de `Fsr3` (el valor de primer arranque), que cuesta GPU y VRAM.
++- **VSync `FifoRelaxed`**: si bajas de 60 fps no se cae a 30.
++- **Reactive flushing desactivado**, **precisión de GPU baja** y **shaders asíncronos**: lo que el
++  proyecto midió como mejor en una RTX 3050.
++- **ASTC en GPU recomprimido a BC3** y **VRAM conservadora**: la RTX no soporta ASTC nativo; sin
++  recompresión las texturas ocupan 4-16 veces más (`NX2_NOTES.md`, fila 99). BC3 ya usa 4 bits por
++  píxel en las texturas opacas, así que BC1 solo aporta pérdida de alfa; no lo uses.
++- **Modo portátil (720p)**. En dock (1080p) se renderizan ~2,25 veces más píxeles.
++
++Si algún juego va justo de VRAM, baja primero el anti-aliasing a `None` (`anti_aliasing=0`) y
++mantén `resolution_setup=3` (1X); no subas la resolución.
++
++## 2. Memoria virtual de Windows (lo más importante con 8 GB de RAM)
++
++El respaldo de memoria del invitado se reserva como *commit* al arrancar. Con 8 GB de RAM y el
++archivo de paginación en automático puede fallar con `Failed to allocate ... MiB of backing memory`
++(`NX2_NOTES.md`, fila 128).
++
++1. `Configuración > Sistema > Acerca de > Configuración avanzada del sistema > Rendimiento >
++   Configuración > Opciones avanzadas > Memoria virtual > Cambiar`.
++2. Desmarca "Administrar automáticamente...", elige tu SSD, **Tamaño personalizado**:
++   inicial y máximo **24576 MB** (24 GB). Acepta y reinicia.
++3. Mantén ≥ 30 GB libres en esa unidad.
++
++Es necesario para los juegos de Switch 2 y una red de seguridad para los de Switch 1.
++
++## 3. GPU y energía (laptop híbrida Intel + NVIDIA)
++
++- Con el cargador conectado y el modo de energía de Windows en "Mejor rendimiento".
++- `Configuración > Sistema > Pantalla > Gráficos`: añade `lichii.exe` y pon **Alto rendimiento**
++  (RTX 3050), para que Optimus no use la gráfica integrada.
++- Panel de control de NVIDIA > Administrar configuración 3D > Programa `lichii.exe`:
++  Modo de administración de energía = **Preferir máximo rendimiento**; Tamaño de caché de
++  sombreador = **Ilimitado** (o ≥ 10 GB).
++- Cierra navegadores y Discord antes de jugar: consumen RAM y VRAM que aquí no sobran
++  (el emulador ya ajusta sus umbrales de texturas al presupuesto de VRAM que reporta el driver, y
++  lo reduce si otros programas usan VRAM).
++- Driver NVIDIA reciente. Si hay cortes o *stutter* tras actualizar, borra la caché de shaders de
++  Lichii (`%APPDATA%\eden\cache\shader`) y la de NVIDIA (`%LOCALAPPDATA%\NVIDIA\DXCache`) y vuelve a jugar.
++
++## 4. Compilar para el i5 de 12a gen (opcional)
++
++Primero prueba el build publicado `windows-x86_64-pgo`: usa el perfil PGO del proyecto, que se
++afinó con juegos de Switch 2 (con un perfil de Switch 1 el mismo juego iba a la mitad de velocidad,
++ver `.github/workflows/release-binaries.yml`).
++
++Para compilar tú mismo, este parche añade el preset `alderlake` (AVX2/FMA/BMI2, sin AVX-512, que es
++lo que tienen los Core de 12a gen):
++
++```sh
++cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DYUZU_BUILD_PRESET=alderlake ...
++```
++
++`-DYUZU_BUILD_PRESET=v3` es la alternativa portable. No he medido la combinación del preset con el
++perfil PGO; compara fps contra el build oficial antes de quedarte con uno.
++
++## 5. Cómo leer tu log
++
++En `%APPDATA%\eden\log\eden_log.txt` busca:
++
++- `Available VRAM:` debe indicar entre ~3 y 3,5 GiB (4 GB menos la reserva del emulador y lo que Windows use).
++- `Texture cache thresholds:` y, en juegos de Switch 2, `Out of device memory: keeping ... MiB more
++  free`: si esta última aparece a menudo, la VRAM está al límite; baja anti-aliasing y no uses dock.
++- `GPU thread pinning skipped: 4 physical performance cores, needs 6`: es lo esperado en un i5 H de
++  4 núcleos P + E-cores. El emulador ya envía los hilos críticos a los núcleos de rendimiento y los
++  trabajos de fondo a los de eficiencia; el fijado dedicado solo se activa con ≥ 6 núcleos P.
++
++## Qué cambia este parche en el código
++
++- `CMakeLists.txt`, `docs/Options.md`: preset `YUZU_BUILD_PRESET=alderlake`.
++- `src/video_core/buffer_cache/buffer_cache.h`: en títulos de Switch 2 el recolector de buffers
++  empezaba a liberar a 512 MiB (agresivo a 1 GiB) sin importar la VRAM. En una tarjeta con menos de
++  4 GiB utilizables eso es una fracción demasiado grande que la caché de texturas también necesita,
++  así que ahora escala a 1/8 y 1/4 de la VRAM disponible (448 / 896 MiB con ~3,5 GiB). Sin cambios
++  en tarjetas de 4 GiB o más.
+diff -ruN a/docs/Options.md b/docs/Options.md
+--- a/docs/Options.md	2026-11-07 03:17:25.000000000 -0600
++++ b/docs/Options.md	2026-11-07 16:46:12.241366761 -0600
+@@ -41,6 +41,8 @@
+ - `ENABLE_LTO` (OFF) Enable link-time optimization
+   - Not recommended on Windows
+   - UNIX may be better off appending `-flto=thin` to compiler args
++- `YUZU_BUILD_PRESET` (custom) CPU target for GCC/Clang x86_64 builds: `custom`, `generic`, `v3`, `zen2`, `zen4`, `alderlake`, `native`
++  - `alderlake` targets Intel 12th gen (AVX2, FMA, BMI2). `v3` is the portable alternative; `native` only runs on the machine that built it
+ - `USE_FASTER_LINKER` (OFF) Check if a faster linker is available
+   - Not recommended outside of Linux
+ - `YUZU_INSTALL_UDEV_RULES` (OFF) Install udev rules to enable hidraw access
+diff -ruN a/src/video_core/buffer_cache/buffer_cache.h b/src/video_core/buffer_cache/buffer_cache.h
+--- a/src/video_core/buffer_cache/buffer_cache.h	2026-11-07 03:17:25.000000000 -0600
++++ b/src/video_core/buffer_cache/buffer_cache.h	2026-11-07 16:46:42.165278193 -0600
+@@ -156,8 +156,16 @@
+         // downloading the GPU-written ones, ~5% of the GPU thread) that were recreated later.
+         // Collect when the buffers themselves are large. At 1 GiB it held geometry of scenes
+         // long gone: title 1's title screen grew to ~0.9 GB of buffers in ten minutes.
+-        if (buffer_bytes >= 512_MiB) {
+-            RunGarbageCollector(buffer_bytes >= 1_GiB);
++        // On a card with less than 4 GiB to use (a 4 GB laptop GPU leaves ~3.5 GiB) the fixed
++        // 512 MiB / 1 GiB would be a third of the device that the texture cache also needs, so
++        // they scale down with it. Unchanged from 4 GiB up.
++        const u64 device_local = runtime.CanReportMemoryUsage() ? runtime.GetDeviceLocalMemory() : 0;
++        const u64 collect_bytes = device_local != 0 ? (std::min)(u64{512_MiB}, device_local / 8)
++                                                    : u64{512_MiB};
++        const u64 aggressive_bytes = device_local != 0 ? (std::min)(u64{1_GiB}, device_local / 4)
++                                                       : u64{1_GiB};
++        if (buffer_bytes >= collect_bytes) {
++            RunGarbageCollector(buffer_bytes >= aggressive_bytes);
+         }
+     } else if (total_used_memory >= minimum_memory) {
+         RunGarbageCollector(total_used_memory >= critical_memory);
